@@ -20,6 +20,6 @@ venv.bak/
 
 # ignore bin objects
 *.o
-*/XSBench-*
-*/RSBench-*
-*/MPPBench*
+*XSBench-*
+*RSBench-*
+*MPPBench*
