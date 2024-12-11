@@ -1,0 +1,7 @@
+[submodule "real_world_apps/massccs"]
+	path = real_world_apps/massccs
+	url = https://github.com/cl3to/massccs-multi-device
+
+[submodule "real_world_apps/simwave"]
+	path = real_world_apps/simwave
+	url = git@gitlab.com:ompcluster/simwave.git
