@@ -1,0 +1,197 @@
+metadata:
+  description: "XSBench - Monte Carlo Neutron Transport Code Proxy Application"
+  version: "1.0"
+  runs: 5
+  timeout: 600
+  retry: False
+  retry_limit: 0
+
+  MPP_1GPU:
+    bench_path: ./
+
+    output:
+      - type: contains
+        pattern: "Num Devices:"
+        to_float:
+          name: num_devices
+          lambda: >
+            lambda x:  (
+            int(x.split(":")[1].strip())
+            )
+
+      - type: contains
+        pattern: "Total Lookups:"
+        to_float:
+          name: lookups
+          lambda: >
+            lambda x:  (
+            int(x.split(":")[1].strip())
+            )
+  
+      - type: contains
+        pattern: "Runtime:"
+        to_float:
+          name: runtime
+          lambda: >
+            lambda x:  (
+            float(x.split(":")[1].strip().split()[0])
+            )
+
+      - type: contains
+        pattern: "Lookups/s:"
+        to_float:
+          name: lookups_per_sec
+          lambda: >
+            lambda x: (    
+            float(x.split(":")[1].strip().split()[0].replace(",", ""))
+            )
+
+    plot_axis:
+      - title: "Runtime x Number of Devices"
+        x_axis: num_devices
+        y_axis: runtime
+        group_by: ["lookups", "num_devices"]
+
+    command:
+      template: >
+        OMPTARGET_NUM_DATA_EVENT_HANDLERS=4
+        OMPTARGET_NUM_EXEC_EVENT_HANDLERS=4
+        OMPTARGET_MPI_FRAGMENT_SIZE=2000000000
+        OMPTARGET_NUM_MPI_COMMS=16
+        MPIR_CVAR_CH4_NUM_VCIS=16
+        MPIR_PARAM_CH4_GLOBAL_PROGRESS=0
+        mpirun -hosts {{hosts}} -ppn 1
+        -np {{workers}} -env CUDA_VISIBLE_DEVICES="0" numactl --cpunodebind=0 --membind=0 llvm-offload-mpi-proxy-device :
+        -np 1 -env CUDA_VISIBLE_DEVICES="" numactl --cpunodebind=1 --membind=1 {{bench_path}}/RSBench-Weak -m event -s {{size}} -l {{lookup_size}}
+
+  MPP:
+    bench_path: ./
+
+    output:
+      - type: contains
+        pattern: "Num Devices:"
+        to_float:
+          name: num_devices
+          lambda: >
+            lambda x:  (
+            int(x.split(":")[1].strip())
+            )
+
+      - type: contains
+        pattern: "Total Lookups:"
+        to_float:
+          name: lookups
+          lambda: >
+            lambda x:  (
+            int(x.split(":")[1].strip())
+            )
+  
+      - type: contains
+        pattern: "Runtime:"
+        to_float:
+          name: runtime
+          lambda: >
+            lambda x:  (
+            float(x.split(":")[1].strip().split()[0])
+            )
+
+      - type: contains
+        pattern: "Lookups/s:"
+        to_float:
+          name: lookups_per_sec
+          lambda: >
+            lambda x: (    
+            float(x.split(":")[1].strip().split()[0].replace(",", ""))
+            )
+
+    plot_axis:
+      - title: "Runtime x Number of Devices"
+        x_axis: num_devices
+        y_axis: runtime
+        group_by: ["lookups", "num_devices"]
+
+    command:
+      template: >
+        OMPTARGET_NUM_DATA_EVENT_HANDLERS=4
+        OMPTARGET_NUM_EXEC_EVENT_HANDLERS=4
+        OMPTARGET_MPI_FRAGMENT_SIZE=2000000000
+        OMPTARGET_NUM_MPI_COMMS=16
+        MPIR_CVAR_CH4_NUM_VCIS=16
+        MPIR_PARAM_CH4_GLOBAL_PROGRESS=0
+        mpirun -hosts {{hosts}} -ppn 1
+        -np {{workers}} -env CUDA_VISIBLE_DEVICES={{devices}} numactl --cpunodebind=0 --membind=0 llvm-offload-mpi-proxy-device :
+        -np 1 -env CUDA_VISIBLE_DEVICES="" numactl --cpunodebind=1 --membind=1 {{bench_path}}/RSBench-Weak -m event -s {{size}} -l {{lookup_size}}
+
+  cuda:
+    bench_path: ./
+
+    output:
+      - type: contains
+        pattern: "Num Devices:"
+        to_float:
+          name: num_devices
+          lambda: >
+            lambda x:  (
+            int(x.split(":")[1].strip())
+            )
+
+      - type: contains
+        pattern: "Total Lookups:"
+        to_float:
+          name: lookups
+          lambda: >
+            lambda x:  (
+            int(x.split(":")[1].strip())
+            )
+  
+      - type: contains
+        pattern: "Runtime:"
+        to_float:
+          name: runtime
+          lambda: >
+            lambda x:  (
+            float(x.split(":")[1].strip().split()[0])
+            )
+
+      - type: contains
+        pattern: "Lookups/s:"
+        to_float:
+          name: lookups_per_sec
+          lambda: >
+            lambda x: (    
+            float(x.split(":")[1].strip().split()[0].replace(",", ""))
+            )
+
+    plot_axis:
+      - title: "Runtime x Number of Devices"
+        x_axis: num_devices
+        y_axis: runtime
+        group_by: ["lookups", "num_devices"]
+
+    command:
+      template: >
+        CUDA_VISIBLE_DEVICES={{devices}} {{bench_path}}/RSBench-Weak -m event -s {{size}} -l {{lookup_size}}
+
+MPP_1GPU:
+  size:
+    - small
+    - large
+  lookup_size: [10000000000]
+  workers: [1]
+  devices: ["0"]
+
+MPP:
+  size:
+    - small
+    - large
+  lookup_size: [10000000000]
+  workers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+  devices: ["0,1,2,3"]
+
+cuda:
+  size:
+    - small
+    - large
+  lookup_size: [10000000000]
+  devices: ["0", "0,1", "0,1,2", "0,1,2,3"]
+  workers: [1]
