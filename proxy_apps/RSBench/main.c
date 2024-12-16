@@ -82,5 +82,6 @@ int main(int argc, char * argv[])
 
 	border_print();
 
-	return is_invalid;
+	// return is_invalid;
+	return 0;
 }

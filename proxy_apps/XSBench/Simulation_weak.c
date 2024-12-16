@@ -41,22 +41,68 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 	////////////////////////////////////////////////////////////////////////////////
 	int num_devices = omp_get_num_devices();
 	unsigned long chunk = in.lookups;
-        
+    
+	int *mats_d[num_devices];
+	int *num_nucs_d[num_devices];
+	int *index_grid_d[num_devices];
+	double *concs_d[num_devices];
+	double *unionized_energy_arr_d[num_devices];
+	NuclideGridPoint *nuclide_grid_d[num_devices];
+
+
     printf("Num Devices: %d\nChunk Size: %lu\n", num_devices, chunk);
  
-
 	#pragma omp parallel for num_threads(num_devices)
 	for (int K = 0; K < num_devices; K++) {
-		#pragma omp target teams distribute parallel for\
-				map(to: SD.max_num_nucs)\
-				map(to: SD.num_nucs[:SD.length_num_nucs])\
-				map(to: SD.concs[:SD.length_concs])\
-				map(to: SD.mats[:SD.length_mats])\
-				map(to: SD.unionized_energy_array[:SD.length_unionized_energy_array])\
-				map(to: SD.index_grid[:SD.length_index_grid])\
-				map(to: SD.nuclide_grid[:SD.length_nuclide_grid])\
-		        device(K)
-		for( unsigned long i = 0; i < chunk; i++ )
+		int max_num_nucs = SD.max_num_nucs;
+		num_nucs_d[K] = (int *) omp_target_alloc(SD.length_num_nucs*sizeof(int), K);
+		concs_d[K] = (double *) omp_target_alloc(SD.length_concs*sizeof(double), K);
+		mats_d[K] = (int *) omp_target_alloc(SD.length_mats*sizeof(int), K);
+		unionized_energy_arr_d[K] = (double *) omp_target_alloc(SD.length_unionized_energy_array*sizeof(double), K);
+		index_grid_d[K] = (int *) omp_target_alloc(SD.length_index_grid*sizeof(int), K);
+		nuclide_grid_d[K] = (NuclideGridPoint *) omp_target_alloc(SD.length_nuclide_grid*sizeof(NuclideGridPoint), K);
+
+
+		int host_device = omp_get_initial_device();
+
+		if (K % 4 == 0) {
+			#pragma omp task depend(out: num_nucs_d[K])
+			{
+				omp_target_memcpy(num_nucs_d[K], SD.num_nucs, SD.length_num_nucs*sizeof(int), 0 , 0, K, host_device);
+				omp_target_memcpy(concs_d[K], SD.concs, SD.length_concs*sizeof(double), 0 , 0, K, host_device);
+				omp_target_memcpy(mats_d[K], SD.mats, SD.length_mats*sizeof(int), 0 , 0, K, host_device);
+				omp_target_memcpy(unionized_energy_arr_d[K], SD.unionized_energy_array, SD.length_unionized_energy_array*sizeof(double), 0 , 0, K, host_device);
+				omp_target_memcpy(index_grid_d[K], SD.index_grid, SD.length_index_grid*sizeof(int), 0 , 0, K, host_device);
+				omp_target_memcpy(nuclide_grid_d[K], SD.nuclide_grid, SD.length_nuclide_grid*sizeof(NuclideGridPoint), 0 , 0, K, host_device);
+			}
+		}
+		else {
+			int source_device = (K/4) * 4;
+			int target_device = K;
+			#pragma omp task depend(in: num_nucs_d[source_device]) depend(out: num_nucs_d[target_device])
+			{
+				omp_target_memcpy(num_nucs_d[target_device], num_nucs_d[source_device], SD.length_num_nucs*sizeof(int), 0 , 0, target_device, source_device);
+				omp_target_memcpy(concs_d[target_device], concs_d[source_device], SD.length_concs*sizeof(double), 0 , 0, target_device, source_device);
+				omp_target_memcpy(mats_d[target_device], mats_d[source_device], SD.length_mats*sizeof(int), 0 , 0, target_device, source_device);
+				omp_target_memcpy(unionized_energy_arr_d[target_device], unionized_energy_arr_d[source_device], SD.length_unionized_energy_array*sizeof(double), 0 , 0, target_device, source_device);
+				omp_target_memcpy(index_grid_d[target_device], index_grid_d[source_device], SD.length_index_grid*sizeof(int), 0 , 0, target_device, source_device);
+				omp_target_memcpy(nuclide_grid_d[target_device], nuclide_grid_d[source_device], SD.length_nuclide_grid*sizeof(NuclideGridPoint), 0 , 0, target_device, source_device);
+			}
+		}
+
+		#pragma omp taskwait
+
+		int *num_nucs_dk = num_nucs_d[K];
+		double *concs_dk = concs_d[K];
+		int *mats_dk = mats_d[K];
+		double *unionized_energy_arr_dk = unionized_energy_arr_d[K];
+		int *index_grid_dk = index_grid_d[K];
+		NuclideGridPoint *nuclide_grid_dk = nuclide_grid_d[K];
+	
+		#pragma omp target teams distribute parallel for \
+		        is_device_ptr(num_nucs_dk, concs_dk, mats_dk, unionized_energy_arr_dk, index_grid_dk, nuclide_grid_dk) \
+				device(K)
+		for(  unsigned long i = 0; i < chunk; i++ )
 		{
 			// Set the initial seed value
 			uint64_t seed = STARTING_SEED;	
@@ -75,21 +121,21 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 			
 			// Perform macroscopic Cross Section Lookup
 			calculate_macro_xs(
-					p_energy,        // Sampled neutron energy (in lethargy)
-					mat,             // Sampled material type index neutron is in
-					in.n_isotopes,   // Total number of isotopes in simulation
-					in.n_gridpoints, // Number of gridpoints per isotope in simulation
-					SD.num_nucs,     // 1-D array with number of nuclides per material
-					SD.concs,        // Flattened 2-D array with concentration of each nuclide in each material
-					SD.unionized_energy_array, // 1-D Unionized energy array
-					SD.index_grid,   // Flattened 2-D grid holding indices into nuclide grid for each unionized energy level
-					SD.nuclide_grid, // Flattened 2-D grid holding energy levels and XS_data for all nuclides in simulation
-					SD.mats,         // Flattened 2-D array with nuclide indices defining composition of each type of material
-					macro_xs_vector, // 1-D array with result of the macroscopic cross section (5 different reaction channels)
-					in.grid_type,    // Lookup type (nuclide, hash, or unionized)
-					in.hash_bins,    // Number of hash bins used (if using hash lookup type)
-					SD.max_num_nucs  // Maximum number of nuclides present in any material
-					);
+				p_energy,        // Sampled neutron energy (in lethargy)
+				mat,             // Sampled material type index neutron is in
+				in.n_isotopes,   // Total number of isotopes in simulation
+				in.n_gridpoints, // Number of gridpoints per isotope in simulation
+				num_nucs_dk,     // 1-D array with number of nuclides per material
+				concs_dk,        // Flattened 2-D array with concentration of each nuclide in each material
+				unionized_energy_arr_dk, // 1-D Unionized energy array
+				index_grid_dk,   // Flattened 2-D grid holding indices into nuclide grid for each unionized energy level
+				nuclide_grid_dk, // Flattened 2-D grid holding energy levels and XS_data for all nuclides in simulation
+				mats_dk,         // Flattened 2-D array with nuclide indices defining composition of each type of material
+				macro_xs_vector, // 1-D array with result of the macroscopic cross section (5 different reaction channels)
+				in.grid_type,    // Lookup type (nuclide, hash, or unionized)
+				in.hash_bins,    // Number of hash bins used (if using hash lookup type)
+				SD.max_num_nucs  // Maximum number of nuclides present in any material
+			);
 
 			// For verification, and to prevent the compiler from optimizing
 			// all work out, we interrogate the returned macro_xs_vector array
@@ -110,6 +156,13 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 				}
 			}
 		}
+
+		omp_target_free(num_nucs_dk, K);
+		omp_target_free(concs_dk, K);
+		omp_target_free(mats_dk, K);
+		omp_target_free(unionized_energy_arr_dk, K);
+		omp_target_free(index_grid_dk, K);
+		omp_target_free(nuclide_grid_dk, K);	
 	}
 
 	return 0;
@@ -399,4 +452,3 @@ uint64_t fast_forward_LCG(uint64_t seed, uint64_t n)
 	return (a_new * seed + c_new) % m;
 
 }
-
