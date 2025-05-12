@@ -7,7 +7,7 @@
 # make clean
 
 # Build RSBench
-cd ../proxy_apps/RSBench
+cd ./proxy_apps/RSBench
 CUDA_ARCH=$1 make
 cp -f ./RSBench-* ../../
 make clean
