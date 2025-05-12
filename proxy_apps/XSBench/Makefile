@@ -100,22 +100,25 @@ endif
 # Targets to Build
 #===============================================================================
 
-all: XSBench-Weak XSBench-Strong
+all: XSBench-naive-weak XSBench-bcast-weak XSBench-naive-strong XSBench-bcast-strong
 
-XSBench-Weak: $(obj) Simulation_weak.o XSbench_header.h Makefile
+XSBench-naive-weak: $(obj) Simulation_weak.o XSbench_header.h Makefile
 	$(CC) $(CFLAGS) $(obj) Simulation_weak.o -o $@ $(LDFLAGS)
 
-XSBench-Strong: $(obj) Simulation_strong.o XSbench_header.h Makefile
+XSBench-naive-strong: $(obj) Simulation_strong.o XSbench_header.h Makefile
 	$(CC) $(CFLAGS) $(obj) Simulation_strong.o -o $@ $(LDFLAGS)
 
-# $(program): $(obj) XSbench_header.h Makefile
-# 	$(CC) $(CFLAGS) $(obj) -o $@ $(LDFLAGS)
+XSBench-bcast-weak: $(obj) Simulation_bcast_weak.o XSbench_header.h Makefile
+	$(CC) $(CFLAGS) $(obj) Simulation_bcast_weak.o -o $@ $(LDFLAGS)
+
+XSBench-bcast-strong: $(obj) Simulation_bcast_strong.o XSbench_header.h Makefile
+	$(CC) $(CFLAGS) $(obj) Simulation_bcast_strong.o -o $@ $(LDFLAGS)
 
 %.o: %.c XSbench_header.h Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(program) XSBench-Weak XSBench-Strong *.o $(obj)
+	rm -rf $(program) XSBench-naive-weak XSBench-bcast-weak XSBench-naive-strong XSBench-bcast-strong *.o $(obj)
 
 edit:
 	vim -p $(source) XSbench_header.h

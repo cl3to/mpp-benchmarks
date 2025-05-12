@@ -41,22 +41,221 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 	////////////////////////////////////////////////////////////////////////////////
 	int num_devices = omp_get_num_devices();
 	unsigned long chunk = in.lookups;
-        
-    printf("Num Devices: %d\nChunk Size: %lu\n", num_devices, chunk);
+    
+	int *mats_d[num_devices];
+	int *num_nucs_d[num_devices];
+	int *index_grid_d[num_devices];
+	double *concs_d[num_devices];
+	double *unionized_energy_arr_d[num_devices];
+	NuclideGridPoint *nuclide_grid_d[num_devices];
+
+	int max_num_nucs = SD.max_num_nucs;
+	int host_device = omp_get_initial_device();
+
+	int deps[6*num_devices] = {};
+
+	printf("Num Devices: %d\nChunk Size: %lu\n", num_devices, chunk);
  
+	#pragma omp parallel for num_threads(num_devices)
+	for (int K = 0; K < num_devices; K++) {
+		num_nucs_d[K] = (int *) omp_target_alloc(SD.length_num_nucs*sizeof(int), K);
+		concs_d[K] = (double *) omp_target_alloc(SD.length_concs*sizeof(double), K);
+		mats_d[K] = (int *) omp_target_alloc(SD.length_mats*sizeof(int), K);
+		unionized_energy_arr_d[K] = (double *) omp_target_alloc(SD.length_unionized_energy_array*sizeof(double), K);
+		index_grid_d[K] = (int *) omp_target_alloc(SD.length_index_grid*sizeof(int), K);
+		nuclide_grid_d[K] = (NuclideGridPoint *) omp_target_alloc(SD.length_nuclide_grid*sizeof(NuclideGridPoint), K);
+	}
+
+	#pragma omp parallel num_threads(num_devices)
+	#pragma omp single
+	for (int K = 0; K < num_devices; K++) {
+
+		int *num_nucs_dk = num_nucs_d[K];
+		double *concs_dk = concs_d[K];
+		int *mats_dk = mats_d[K];
+		double *unionized_energy_arr_dk = unionized_energy_arr_d[K];
+		int *index_grid_dk = index_grid_d[K];
+		NuclideGridPoint *nuclide_grid_dk = nuclide_grid_d[K];
+
+		if (K == 0 || K == 4) {
+
+			#pragma omp task depend(out: deps[6*K])
+			{
+				// printf("(K=%d): source_device=%d. dep=%p\n", K, host_device, &deps[6*K]);
+				omp_target_memcpy(num_nucs_dk, SD.num_nucs, SD.length_num_nucs*sizeof(int), 0 , 0, K, host_device);			
+			}
+
+			#pragma omp task depend(out: deps[6*K + 1])
+			{
+				// printf("if(K=%d): dep=%p\n", K, &deps[6*K + 1]);
+				omp_target_memcpy(concs_dk, SD.concs, SD.length_concs*sizeof(double), 0 , 0, K, host_device);
+			}
+
+			#pragma omp task depend(out: deps[6*K + 2])
+			{
+				// printf("if(K=%d): dep=%p\n", K, &deps[6*K + 2]);
+				omp_target_memcpy(mats_dk, SD.mats, SD.length_mats*sizeof(int), 0 , 0, K, host_device);
+			}
+
+			#pragma omp task depend(out: deps[6*K + 3])
+			{
+				// printf("if(K=%d): dep=%p\n", K, &deps[6*K + 3]);
+				omp_target_memcpy(unionized_energy_arr_dk, SD.unionized_energy_array, SD.length_unionized_energy_array*sizeof(double), 0 , 0, K, host_device);
+			}
+
+			#pragma omp task depend(out: deps[6*K + 4])
+			{
+				// printf("if(K=%d): dep=%p\n", K, &deps[6*K + 4]);
+				omp_target_memcpy(index_grid_dk, SD.index_grid, SD.length_index_grid*sizeof(int), 0 , 0, K, host_device);
+			}
+
+			#pragma omp task depend(out: deps[6*K + 5])
+			{
+				// printf("if(K=%d): dep=%p\n", K, &deps[6*K + 5]);
+				omp_target_memcpy(nuclide_grid_dk, SD.nuclide_grid, SD.length_nuclide_grid*sizeof(NuclideGridPoint), 0 , 0, K, host_device);
+			}
+		}
+
+		if (K % 4 == 0) {
+			int source_device = K;
+			int left_device = 2*K+4;
+			int right_device = 2*K+8;
+
+			if (left_device < num_devices && K != 0) {
+				#pragma omp task depend(in: deps[6*source_device]) depend(out: deps[6*left_device])
+				{
+					// printf("(K=%d): source_device=%d, dep=%p, num_nucs_dk=%p\n", left_device, source_device, &deps[6*source_device], num_nucs_dk);
+					omp_target_memcpy(num_nucs_d[left_device], num_nucs_d[source_device], SD.length_num_nucs*sizeof(int), 0 , 0, left_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 1]) depend(out: deps[6*left_device + 1])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, concs_dk=%p\n", K, source_device, &deps[6*source_device + 1], concs_dk);
+					omp_target_memcpy(concs_d[left_device], concs_d[source_device], SD.length_concs*sizeof(double), 0 , 0, left_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 2]) depend(out: deps[6*left_device + 2])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, mats_dk=%p\n", K, source_device, &deps[6*source_device + 2], mats_dk);
+					omp_target_memcpy(mats_d[left_device], mats_d[source_device], SD.length_mats*sizeof(int), 0 , 0, left_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 3]) depend(out: deps[6*left_device + 3])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, unionized_energy_arr_dk=%p\n", K, source_device, &deps[6*source_device + 3], unionized_energy_arr_dk);
+					omp_target_memcpy(unionized_energy_arr_d[left_device], unionized_energy_arr_d[source_device], SD.length_unionized_energy_array*sizeof(double), 0 , 0, left_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 4]) depend(out: deps[6*left_device + 4])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, index_grid_dk=%p\n", K, source_device, &deps[6*source_device + 4], index_grid_dk);
+					omp_target_memcpy(index_grid_d[left_device], index_grid_d[source_device], SD.length_index_grid*sizeof(int), 0 , 0, left_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 5]) depend(out: deps[6*left_device + 5])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, nuclide_grid_dk=%p\n", K, source_device, &deps[6*source_device + 5], nuclide_grid_dk);
+					omp_target_memcpy(nuclide_grid_d[left_device], nuclide_grid_d[source_device], SD.length_nuclide_grid*sizeof(NuclideGridPoint), 0 , 0, left_device, source_device);						
+				}				
+			}
+	
+			if (right_device < num_devices) {
+				#pragma omp task depend(in: deps[6*source_device]) depend(out: deps[6*right_device])
+				{
+					// printf("(K=%d): source_device=%d, dep=%p, num_nucs_dk=%p\n", right_device, source_device, &deps[6*source_device], num_nucs_dk);
+					omp_target_memcpy(num_nucs_d[right_device], num_nucs_d[source_device], SD.length_num_nucs*sizeof(int), 0 , 0, right_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 1]) depend(out: deps[6*right_device + 1])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, concs_dk=%p\n", K, source_device, &deps[6*source_device + 1], concs_dk);
+					omp_target_memcpy(concs_d[right_device], concs_d[source_device], SD.length_concs*sizeof(double), 0 , 0, right_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 2]) depend(out: deps[6*right_device + 2])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, mats_dk=%p\n", K, source_device, &deps[6*source_device + 2], mats_dk);
+					omp_target_memcpy(mats_d[right_device], mats_d[source_device], SD.length_mats*sizeof(int), 0 , 0, right_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 3]) depend(out: deps[6*right_device + 3])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, unionized_energy_arr_dk=%p\n", K, source_device, &deps[6*source_device + 3], unionized_energy_arr_dk);
+					omp_target_memcpy(unionized_energy_arr_d[right_device], unionized_energy_arr_d[source_device], SD.length_unionized_energy_array*sizeof(double), 0 , 0, right_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 4]) depend(out: deps[6*right_device + 4])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, index_grid_dk=%p\n", K, source_device, &deps[6*source_device + 4], index_grid_dk);
+					omp_target_memcpy(index_grid_d[right_device], index_grid_d[source_device], SD.length_index_grid*sizeof(int), 0 , 0, right_device, source_device);
+				}
+	
+				#pragma omp task depend(in: deps[6*source_device + 5]) depend(out: deps[6*right_device + 5])
+				{
+					// printf("else(K=%d): source_device=%d, dep=%p, nuclide_grid_dk=%p\n", K, source_device, &deps[6*source_device + 5], nuclide_grid_dk);
+					omp_target_memcpy(nuclide_grid_d[right_device], nuclide_grid_d[source_device], SD.length_nuclide_grid*sizeof(NuclideGridPoint), 0 , 0, right_device, source_device);						
+				}				
+			}
+		}
+
+		else {
+			int source_device = (K/4) * 4;
+
+			#pragma omp task depend(in: deps[6*source_device])
+			{
+				// printf("(K=%d): source_device=%d, dep=%p, num_nucs_dk=%p\n", K, source_device, &deps[6*source_device], num_nucs_dk);
+				omp_target_memcpy(num_nucs_dk, num_nucs_d[source_device], SD.length_num_nucs*sizeof(int), 0 , 0, K, source_device);
+			}
+
+			#pragma omp task depend(in: deps[6*source_device + 1])
+			{
+				// printf("else(K=%d): source_device=%d, dep=%p, concs_dk=%p\n", K, source_device, &deps[6*source_device + 1], concs_dk);
+				omp_target_memcpy(concs_dk, concs_d[source_device], SD.length_concs*sizeof(double), 0 , 0, K, source_device);
+			}
+
+			#pragma omp task depend(in: deps[6*source_device + 2])
+			{
+				// printf("else(K=%d): source_device=%d, dep=%p, mats_dk=%p\n", K, source_device, &deps[6*source_device + 2], mats_dk);
+				omp_target_memcpy(mats_dk, mats_d[source_device], SD.length_mats*sizeof(int), 0 , 0, K, source_device);
+			}
+
+			#pragma omp task depend(in: deps[6*source_device + 3])
+			{
+				// printf("else(K=%d): source_device=%d, dep=%p, unionized_energy_arr_dk=%p\n", K, source_device, &deps[6*source_device + 3], unionized_energy_arr_dk);
+				omp_target_memcpy(unionized_energy_arr_dk, unionized_energy_arr_d[source_device], SD.length_unionized_energy_array*sizeof(double), 0 , 0, K, source_device);
+			}
+
+			#pragma omp task depend(in: deps[6*source_device + 4])
+			{
+				// printf("else(K=%d): source_device=%d, dep=%p, index_grid_dk=%p\n", K, source_device, &deps[6*source_device + 4], index_grid_dk);
+				omp_target_memcpy(index_grid_dk, index_grid_d[source_device], SD.length_index_grid*sizeof(int), 0 , 0, K, source_device);
+			}
+
+			#pragma omp task depend(in: deps[6*source_device + 5])
+			{
+				// printf("else(K=%d): source_device=%d, dep=%p, nuclide_grid_dk=%p\n", K, source_device, &deps[6*source_device + 5], nuclide_grid_dk);
+				omp_target_memcpy(nuclide_grid_dk, nuclide_grid_d[source_device], SD.length_nuclide_grid*sizeof(NuclideGridPoint), 0 , 0, K, source_device);						
+			}
+		}
+		
+	}
 
 	#pragma omp parallel for num_threads(num_devices)
 	for (int K = 0; K < num_devices; K++) {
-		#pragma omp target teams distribute parallel for\
-				map(to: SD.max_num_nucs)\
-				map(to: SD.num_nucs[:SD.length_num_nucs])\
-				map(to: SD.concs[:SD.length_concs])\
-				map(to: SD.mats[:SD.length_mats])\
-				map(to: SD.unionized_energy_array[:SD.length_unionized_energy_array])\
-				map(to: SD.index_grid[:SD.length_index_grid])\
-				map(to: SD.nuclide_grid[:SD.length_nuclide_grid])\
-		        device(K)
-		for( unsigned long i = 0; i < chunk; i++ )
+
+		int *num_nucs_dk = num_nucs_d[K];
+		double *concs_dk = concs_d[K];
+		int *mats_dk = mats_d[K];
+		double *unionized_energy_arr_dk = unionized_energy_arr_d[K];
+		int *index_grid_dk = index_grid_d[K];
+		NuclideGridPoint *nuclide_grid_dk = nuclide_grid_d[K];
+
+		// #pragma omp task depend(in: deps[6*K], deps[6*K+1], deps[6*K+2], deps[6*K+3], deps[6*K+4], deps[6*K+5])
+		#pragma omp target teams distribute parallel for \
+		        is_device_ptr(num_nucs_dk, concs_dk, mats_dk, unionized_energy_arr_dk, index_grid_dk, nuclide_grid_dk) \
+				firstprivate(max_num_nucs) \
+				device(K)
+		for(unsigned long i = 0; i < chunk; i++)
 		{
 			// Set the initial seed value
 			uint64_t seed = STARTING_SEED;	
@@ -75,21 +274,21 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 			
 			// Perform macroscopic Cross Section Lookup
 			calculate_macro_xs(
-					p_energy,        // Sampled neutron energy (in lethargy)
-					mat,             // Sampled material type index neutron is in
-					in.n_isotopes,   // Total number of isotopes in simulation
-					in.n_gridpoints, // Number of gridpoints per isotope in simulation
-					SD.num_nucs,     // 1-D array with number of nuclides per material
-					SD.concs,        // Flattened 2-D array with concentration of each nuclide in each material
-					SD.unionized_energy_array, // 1-D Unionized energy array
-					SD.index_grid,   // Flattened 2-D grid holding indices into nuclide grid for each unionized energy level
-					SD.nuclide_grid, // Flattened 2-D grid holding energy levels and XS_data for all nuclides in simulation
-					SD.mats,         // Flattened 2-D array with nuclide indices defining composition of each type of material
-					macro_xs_vector, // 1-D array with result of the macroscopic cross section (5 different reaction channels)
-					in.grid_type,    // Lookup type (nuclide, hash, or unionized)
-					in.hash_bins,    // Number of hash bins used (if using hash lookup type)
-					SD.max_num_nucs  // Maximum number of nuclides present in any material
-					);
+				p_energy,        // Sampled neutron energy (in lethargy)
+				mat,             // Sampled material type index neutron is in
+				in.n_isotopes,   // Total number of isotopes in simulation
+				in.n_gridpoints, // Number of gridpoints per isotope in simulation
+				num_nucs_dk,     // 1-D array with number of nuclides per material
+				concs_dk,        // Flattened 2-D array with concentration of each nuclide in each material
+				unionized_energy_arr_dk, // 1-D Unionized energy array
+				index_grid_dk,   // Flattened 2-D grid holding indices into nuclide grid for each unionized energy level
+				nuclide_grid_dk, // Flattened 2-D grid holding energy levels and XS_data for all nuclides in simulation
+				mats_dk,         // Flattened 2-D array with nuclide indices defining composition of each type of material
+				macro_xs_vector, // 1-D array with result of the macroscopic cross section (5 different reaction channels)
+				in.grid_type,    // Lookup type (nuclide, hash, or unionized)
+				in.hash_bins,    // Number of hash bins used (if using hash lookup type)
+				max_num_nucs     // Maximum number of nuclides present in any material
+			);
 
 			// For verification, and to prevent the compiler from optimizing
 			// all work out, we interrogate the returned macro_xs_vector array
@@ -110,6 +309,13 @@ unsigned long long run_event_based_simulation(Inputs in, SimulationData SD, int 
 				}
 			}
 		}
+
+		omp_target_free(num_nucs_d[K], K);
+		omp_target_free(concs_d[K], K);
+		omp_target_free(mats_d[K], K);
+		omp_target_free(unionized_energy_arr_d[K], K);
+		omp_target_free(index_grid_d[K], K);
+		omp_target_free(nuclide_grid_d[K], K);
 	}
 
 	return 0;
@@ -399,4 +605,3 @@ uint64_t fast_forward_LCG(uint64_t seed, uint64_t n)
 	return (a_new * seed + c_new) % m;
 
 }
-
