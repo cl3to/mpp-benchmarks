@@ -87,12 +87,12 @@ endif
 # Targets to Build
 #===============================================================================
 
-all: RSBench-Weak RSBench-Strong
+all: RSBench-weak RSBench-strong
 
-RSBench-Weak: $(obj) simulation_weak.o rsbench.h Makefile
+RSBench-weak: $(obj) simulation_weak.o rsbench.h Makefile
 	$(CC) $(CFLAGS) $(obj) simulation_weak.o -o $@ $(LDFLAGS)
 
-RSBench-Strong: $(obj) simulation_strong.o rsbench.h Makefile
+RSBench-strong: $(obj) simulation_strong.o rsbench.h Makefile
 	$(CC) $(CFLAGS) $(obj) simulation_strong.o -o $@ $(LDFLAGS)
 
 # $(program): $(obj) rsbench.h Makefile
@@ -102,7 +102,7 @@ RSBench-Strong: $(obj) simulation_strong.o rsbench.h Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf rsbench RSBench-Weak RSBench-Strong *.o $(obj)
+	rm -rf rsbench RSBench-weak RSBench-strong *.o $(obj)
 
 edit:
 	vim -p $(source) rsbench.h
