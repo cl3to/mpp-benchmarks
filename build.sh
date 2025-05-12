@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Build Microbenchmark (MPPBench)
-cd ./microbenchmark
-CUDA_ARCH=$1 make
-cp -f ./MPPBench ../
-make clean
+# cd ./microbenchmark
+# CUDA_ARCH=$1 make
+# cp -f ./MPPBench ../
+# make clean
 
 # Build RSBench
 cd ../proxy_apps/RSBench
